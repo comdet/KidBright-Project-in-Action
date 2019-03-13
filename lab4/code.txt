@@ -1,0 +1,73 @@
+#ifndef __SR04_H__
+#define __SR04_H__
+#include "driver.h"
+#include "device.h"
+#include "driver/gpio.h"
+#include <freertos/FreeRTOS.h>
+#include "esp_timer.h"
+#include "freertos/task.h"
+class SR04 : public Device {
+	private:
+        gpio_num_t trig;
+        gpio_num_t echo;
+	public:
+		// constructor
+		SR04(int trig_Pin,int echo_pin);
+		// override
+		void inline init(void){ return; };
+		void inline process(Driver *drv){ error = false; initialized = true; }
+		int inline prop_count(void){ return 0; }
+		bool inline prop_name(int index, char *name){ return false; }
+		bool inline prop_unit(int index, char *unit){ return false; }
+		bool inline prop_attr(int index, char *attr){ return false; }
+		bool inline prop_read(int index, char *value){ return false; }
+		bool inline prop_write(int index, char *value){ return false; }
+		// method
+		float read();		
+};
+#endif
+-------------------
+#include "esp_system.h"
+#include "kidbright32.h"
+#include "SR04.h"
+SR04::SR04(int trig_pin, int echo_pin) {
+    this->trig = (gpio_num_t)trig_pin;
+    this->echo = (gpio_num_t)echo_pin;
+	gpio_set_direction(this->trig, GPIO_MODE_OUTPUT);
+    gpio_set_direction(this->echo, GPIO_MODE_INPUT);
+    gpio_set_level(this->trig, 0);
+}
+
+float SR04::read()
+{
+    gpio_set_level(this->trig, 0);
+    ets_delay_us(4);
+    gpio_set_level(this->trig, 1);
+    ets_delay_us(10);
+    gpio_set_level(this->trig, 0);
+
+    if (gpio_get_level(this->echo)){ return -1; } //// Previous ping isn't ended
+    
+    uint32_t start = esp_timer_get_time();
+    while (!gpio_get_level(this->echo)) // Wait for echo
+    {
+        if(esp_timer_get_time() - start > 100000ULL){   return -1;  }
+    }
+    uint32_t echo_start = esp_timer_get_time();
+    uint32_t time = echo_start;    
+    while (gpio_get_level(this->echo)) // got echo, measuring
+    {
+        time = esp_timer_get_time();
+        if (time - echo_start > 1000000ULL){  return -1;  }
+    }
+    return (time - echo_start) / 58.0; //58 = ROUND TRIP
+}
+
+-----------------
+Blockly.JavaScript['sr04_read'] = function(block) {
+    var number_trig_pin = block.getFieldValue('trig_pin');
+    var number_echo_pin = block.getFieldValue('echo_pin');    
+    var code = 'DEV_IO.SR04('+number_trig_pin+','+number_echo_pin+').read()';
+    return [code, Blockly.JavaScript.ORDER_NONE];
+};
+
